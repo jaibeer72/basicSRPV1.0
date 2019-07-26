@@ -19,7 +19,11 @@ using UnityEngine.Rendering;
 
 public class MyPieline : RenderPipeline
 {
- 
+    //TODO : See the best way to add drawing settings and Shdaer ID list 
+
+    /// <summary>
+    /// Class Properties. 
+    /// </summary>
     CullingResults cull;
     Material errorMaterial;
 
@@ -41,7 +45,27 @@ public class MyPieline : RenderPipeline
     {
         name = "Render Camera", //Gives the command the cameras name in the frame debugger to work with can be customised how you want it.
     };
- 
+
+    /// <summary>
+    /// Constructor that will make sure to add the most basic things in the start at the instantiation opoint
+    /// </summary>
+    public MyPieline()
+    {
+        m_ShaderTagIdList.Add(new ShaderTagId("SRPDefaultUnlit"));
+        m_ShaderTagIdList.Add(new ShaderTagId("ForwardBase"));
+        m_FilteringSettings = new FilteringSettings(RenderQueueRange.all, -1);
+        m_RenderStateBlock = new RenderStateBlock(RenderStateMask.Everything);
+        m_IsOpaque = true;
+        m_ProfilerTag = "Lord Save Our Souls";
+    }
+
+
+    //So destroy things here that need to be done with from the menu 
+    protected override void Dispose(bool disposing)
+    {
+
+    }
+
     /// <summary>
     /// Render Pipeline Loop basically everthing that can be rendered renders here and we define it here.
     /// </summary>
@@ -64,25 +88,9 @@ public class MyPieline : RenderPipeline
             EndCameraRendering(context, Cam);
         }
 
-        EndFrameRendering(context, cameras); 
+        EndFrameRendering(context, cameras);
     }
 
-    static void SetupPerFrameShaderConstants()
-    {
-        // When glossy reflections are OFF in the shader we set a constant color to use as indirect specular
-        SphericalHarmonicsL2 ambientSH = RenderSettings.ambientProbe;
-        Color linearGlossyEnvColor = new Color(ambientSH[0, 0], ambientSH[1, 0], ambientSH[2, 0]) * RenderSettings.reflectionIntensity;
-        Color glossyEnvColor = CoreUtils.ConvertLinearToActiveColorSpace(linearGlossyEnvColor);
-        //Shader.SetGlobalVector(PerFrameBuffer._GlossyEnvironmentColor, glossyEnvColor);
-
-        // Used when subtractive mode is selected
-        //Shader.SetGlobalVector(PerFrameBuffer._SubtractiveShadowColor, CoreUtils.ConvertSRGBToActiveColorSpace(RenderSettings.subtractiveShadowColor));
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        
-    }
 
     /// <summary>
     /// Single Camera Rendering rather than all at once it will still do the same thing as the Render from the RenderPipeline abstract class.
@@ -96,109 +104,76 @@ public class MyPieline : RenderPipeline
         // using the cullingParamters
         // This Function allows you keep track of the cameras settings and take care of the culling rules in the provided object of type cullingParameters
         if (!camera.TryGetCullingParameters(out var cullingParameters)) { return; }
-        //Renders The stuff in Scean View Gizoms anf all go here. 
         
-        
-
-        //
-
         cull = context.Cull(ref cullingParameters);
         // Applies MatrixViewProjection from unity to the camera read more on https://learnopengl.com/Getting-started/Coordinate-Systems
         context.SetupCameraProperties(camera);
-
+        //Draw the skybox  
+        context.DrawSkybox(camera);
+        //Clear screen 
         ClearScreen(camera);
 
-        
-        //cameraBuffer.BeginSample("Render Camera");
+#if UNITY_EDITOR
+        if (camera.cameraType == CameraType.SceneView)
+        {
+            //Renders The stuff in Scean View Gizoms anf all go here. 
+            ScriptableRenderContext.EmitWorldGeometryForSceneView(camera);
+            context.DrawGizmos(camera, GizmoSubset.PostImageEffects);
+        }
+#endif
+
+        cameraBuffer.BeginSample("CoolTag");
         CommandBuffer cmd = CommandBufferPool.Get(m_ProfilerTag);
+        /// This is when you profile each frame.
         using (new ProfilingSample(cmd, m_ProfilerTag))
         {
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
 
-            //var sortFlags = (true) ? renderingData.cameraData.defaultOpaqueSortFlags : SortingCriteria.CommonTransparent;
-            var drawSettings = CreateDrawingSettings(SortingCriteria.CommonOpaque, camera);
+            //Rendering Transparent 
+            var drawSettings = CreateDrawingSettings(SortingCriteria.CommonTransparent, camera);
+            m_FilteringSettings.renderQueueRange = RenderQueueRange.transparent;
             context.DrawRenderers(cull, ref drawSettings, ref m_FilteringSettings, ref m_RenderStateBlock);
-            context.DrawSkybox(camera);
 
-            // Render objects that did not match any shader pass with error shader
-            //RenderingUtils.RenderObjectsWithError(context, ref renderingData.cullResults, camera, m_FilteringSettings, SortingCriteria.None);
+            //Rendering Opeque 
+            drawSettings = CreateDrawingSettings(SortingCriteria.CommonOpaque, camera);
+            m_FilteringSettings.renderQueueRange = RenderQueueRange.opaque;
+            context.DrawRenderers(cull, ref drawSettings, ref m_FilteringSettings, ref m_RenderStateBlock);
+
         }
         context.ExecuteCommandBuffer(cmd);
         CommandBufferPool.Release(cmd);
-#if UNITY_EDITOR
-        if (camera.cameraType == CameraType.SceneView)
-        {
-            ScriptableRenderContext.EmitWorldGeometryForSceneView(camera);
-            context.DrawGizmos(camera, GizmoSubset.PostImageEffects);
-        }
-#endif
-        //Shadow rendering basics ? 
-        //ShadowDrawingSettings shadowDrawingSettings = new ShadowDrawingSettings(cull, default);
-        //if (cull.visibleLights != null)
-        //{
-        //    context.DrawShadows(ref shadowDrawingSettings);
-        //}
-        //drawSettings.sortingSettings = new SortingSettings(camera) { criteria = SortingCriteria.CommonTransparent };
 
-
-
-        //cameraBuffer.EndSample("Render Camera");
+        cameraBuffer.EndSample("CoolTag");
         context.ExecuteCommandBuffer(cameraBuffer);
         cameraBuffer.Clear();
-        context.Submit(); 
-        //IgnoreForNow(context, camera);
+        context.Submit();
     }
 
-    private DrawingSettings CreateDrawingSettings(SortingCriteria sortFlags , Camera camera)
+    /// <summary>
+    /// Does the basic Rendering settings based on the info provided. 
+    /// </summary>
+    /// <param name="sortFlags">The Type of Sorting {Check SortingCriteria}</param>
+    /// <param name="camera">Cam in Render loop</param>
+    /// <returns></returns>
+    private DrawingSettings CreateDrawingSettings(SortingCriteria sortFlags, Camera camera)
     {
 
         SortingSettings sortingSettings = new SortingSettings(camera) { criteria = sortFlags };
         var settings = new DrawingSettings(m_ShaderTagIdList[0], sortingSettings)
         {
-            //perObjectData = renderingData.perObjectData,
+            //perObjectData = PerObjectData.None,
             enableInstancing = true,
             //mainLightIndex = renderingData.lightData.mainLightIndex,
-            enableDynamicBatching = true,
+            enableDynamicBatching = false,
         };
-        return settings;
-    }
-
-    private void IgnoreForNow(ScriptableRenderContext context, Camera camera)
-    {
-
-        // CullingResults was previously called CullResult and not that is depricated i have this here for now if i use it in future.
-
-        cameraBuffer.Clear();
-        ///
-        var sortSettings = new SortingSettings(camera);
-        sortSettings.criteria = SortingCriteria.CommonOpaque;
-        var drawSettings = new DrawingSettings(new ShaderTagId("SRPDefault"), sortSettings);
-        drawSettings.sortingSettings = sortSettings;
-
-        var filterSettings = new FilteringSettings()
+        if (m_ShaderTagIdList.Count > 1)
         {
-            renderQueueRange = RenderQueueRange.opaque
-        };
-
-        context.DrawRenderers(cull, ref drawSettings, ref filterSettings);
-
-        context.ExecuteCommandBuffer(cameraBuffer);
-        context.Submit();
-
-
-        sortSettings.criteria = SortingCriteria.CommonTransparent;
-        drawSettings.sortingSettings = sortSettings;
-        filterSettings.renderQueueRange = RenderQueueRange.transparent;
-        context.DrawRenderers(
-            cull, ref drawSettings, ref filterSettings
-        );
-        context.ExecuteCommandBuffer(cameraBuffer);
-
-
-        cameraBuffer.Clear();
-        // And whenver you allow something on the paper you need to make sure to submit it to the teacher which is unity here :P 
-        context.Submit();
+            for (int i = 1; i < m_ShaderTagIdList.Count; ++i)
+                settings.SetShaderPassName(i, m_ShaderTagIdList[i]);
+        }
+        //Sets up all th shaders to in the list and sends it to the settings.
+        return settings;
     }
 
     // Acts like GL clear Color or clearning the canvas.
@@ -213,60 +188,17 @@ public class MyPieline : RenderPipeline
             (clearFlags & CameraClearFlags.Color) != 0,
             camera.backgroundColor
         );
-        
+
     }
 
-    [Conditional("DEVELOPMENT_BUILD"), Conditional("UNITY_EDITOR")]
-    void DrawDefaultPipeline(ScriptableRenderContext context, Camera camera)
-    {
-        if (errorMaterial == null)
-        {
-            Shader errorShader = Shader.Find("Hidden/InternalErrorShader");
-            errorMaterial = new Material(errorShader)
-            {
-                hideFlags = HideFlags.HideAndDontSave
-            };
-        }
-
-        var drawSettings = new DrawingSettings( new ShaderTagId("ForwardBase") , new SortingSettings(camera));
-        drawSettings.SetShaderPassName(1, new ShaderTagId("PrepassBase"));
-        drawSettings.SetShaderPassName(2, new ShaderTagId("Always"));
-        drawSettings.SetShaderPassName(3, new ShaderTagId("Vertex"));
-        drawSettings.SetShaderPassName(4, new ShaderTagId("VertexLMRGBM"));
-        drawSettings.SetShaderPassName(5, new ShaderTagId("VertexLM"));
-        drawSettings.overrideMaterial = errorMaterial;
-
-        var filterSettings = new FilteringSettings();
-
-        context.DrawRenderers(
-            cull, ref drawSettings, ref filterSettings
-        );
-    }
-
-    public MyPieline()
-    {
-        m_ShaderTagIdList.Add(new ShaderTagId("SRPDefaultUnlit"));
-        m_FilteringSettings = new FilteringSettings(RenderQueueRange.opaque, -1);
-        m_RenderStateBlock = new RenderStateBlock(RenderStateMask.Everything);
-        m_IsOpaque = true;
-        m_ProfilerTag = "Lord Save Our Souls"; 
-    }
 }
 
-public enum RenderPassEvent
-{
-    BeforeRendering = 0,
-    BeforeRenderingShadows = 50,
-    AfterRenderingShadows = 100,
-    BeforeRenderingPrepasses = 150,
-    AfterRenderingPrePasses = 200,
-    BeforeRenderingOpaques = 250,
-    AfterRenderingOpaques = 300,
-    BeforeRenderingSkybox = 350,
-    AfterRenderingSkybox = 400,
-    BeforeRenderingTransparents = 450,
-    AfterRenderingTransparents = 500,
-    BeforeRenderingPostProcessing = 550,
-    AfterRenderingPostProcessing = 600,
-    AfterRendering = 1000,
-}
+
+///Shadow Rendeings Code here
+/////Shadow rendering basics ? 
+//ShadowDrawingSettings shadowDrawingSettings = new ShadowDrawingSettings(cull, default);
+//if (cull.visibleLights != null)
+//{
+//    context.DrawShadows(ref shadowDrawingSettings);
+//}
+//drawSettings.sortingSettings = new SortingSettings(camera) { criteria = SortingCriteria.CommonTransparent };

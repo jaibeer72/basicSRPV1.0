@@ -23,6 +23,14 @@ public class MyPieline : RenderPipeline
     CullingResults cull;
     Material errorMaterial;
 
+    //Object Rendering Essentials
+    FilteringSettings m_FilteringSettings;
+    RenderStateBlock m_RenderStateBlock;
+    List<ShaderTagId> m_ShaderTagIdList = new List<ShaderTagId>();
+    string m_ProfilerTag;
+    bool m_IsOpaque;
+
+
     // Command Buffer
     // The Idea of command buffer is that it will manage graphis memory but at the same time control what can be done in that memory
     // For example the CommandBuffer will allow you to render things faster but at the same time it can control wheather you drawMesh or
@@ -50,7 +58,8 @@ public class MyPieline : RenderPipeline
         foreach (var Cam in cameras)
         {
             //New Builtin Passes for camera? maybe
-            BeginCameraRendering(context, Cam); 
+            BeginCameraRendering(context, Cam);
+
             RenderEachCam(context, Cam);
             EndCameraRendering(context, Cam);
         }
@@ -100,16 +109,23 @@ public class MyPieline : RenderPipeline
         ClearScreen(camera);
 
         
-        cameraBuffer.BeginSample("Render Camera");
-        context.ExecuteCommandBuffer(cameraBuffer);
-        cameraBuffer.Clear();
+        //cameraBuffer.BeginSample("Render Camera");
+        CommandBuffer cmd = CommandBufferPool.Get(m_ProfilerTag);
+        using (new ProfilingSample(cmd, m_ProfilerTag))
+        {
+            context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
 
+            //var sortFlags = (true) ? renderingData.cameraData.defaultOpaqueSortFlags : SortingCriteria.CommonTransparent;
+            var drawSettings = CreateDrawingSettings(SortingCriteria.CommonOpaque, camera);
+            context.DrawRenderers(cull, ref drawSettings, ref m_FilteringSettings, ref m_RenderStateBlock);
+            context.DrawSkybox(camera);
 
-        var drawSettings = new DrawingSettings(new ShaderTagId(), new SortingSettings(camera) { criteria = SortingCriteria.CommonOpaque });
-        var filterSettings = new FilteringSettings(RenderQueueRange.opaque, -1 ,default,1);
-
-        context.DrawRenderers(cull, ref drawSettings, ref filterSettings);
-        context.DrawSkybox(camera);
+            // Render objects that did not match any shader pass with error shader
+            //RenderingUtils.RenderObjectsWithError(context, ref renderingData.cullResults, camera, m_FilteringSettings, SortingCriteria.None);
+        }
+        context.ExecuteCommandBuffer(cmd);
+        CommandBufferPool.Release(cmd);
 #if UNITY_EDITOR
         if (camera.cameraType == CameraType.SceneView)
         {
@@ -123,15 +139,29 @@ public class MyPieline : RenderPipeline
         //{
         //    context.DrawShadows(ref shadowDrawingSettings);
         //}
-        drawSettings.sortingSettings = new SortingSettings(camera) { criteria = SortingCriteria.CommonTransparent };
-        filterSettings.renderQueueRange = RenderQueueRange.transparent;
-        context.DrawRenderers(cull, ref drawSettings, ref filterSettings);
-        
-        cameraBuffer.EndSample("Render Camera");
+        //drawSettings.sortingSettings = new SortingSettings(camera) { criteria = SortingCriteria.CommonTransparent };
+
+
+
+        //cameraBuffer.EndSample("Render Camera");
         context.ExecuteCommandBuffer(cameraBuffer);
         cameraBuffer.Clear();
         context.Submit(); 
         //IgnoreForNow(context, camera);
+    }
+
+    private DrawingSettings CreateDrawingSettings(SortingCriteria sortFlags , Camera camera)
+    {
+
+        SortingSettings sortingSettings = new SortingSettings(camera) { criteria = sortFlags };
+        var settings = new DrawingSettings(m_ShaderTagIdList[0], sortingSettings)
+        {
+            //perObjectData = renderingData.perObjectData,
+            enableInstancing = true,
+            //mainLightIndex = renderingData.lightData.mainLightIndex,
+            enableDynamicBatching = true,
+        };
+        return settings;
     }
 
     private void IgnoreForNow(ScriptableRenderContext context, Camera camera)
@@ -212,4 +242,31 @@ public class MyPieline : RenderPipeline
             cull, ref drawSettings, ref filterSettings
         );
     }
+
+    public MyPieline()
+    {
+        m_ShaderTagIdList.Add(new ShaderTagId("SRPDefaultUnlit"));
+        m_FilteringSettings = new FilteringSettings(RenderQueueRange.opaque, -1);
+        m_RenderStateBlock = new RenderStateBlock(RenderStateMask.Everything);
+        m_IsOpaque = true;
+        m_ProfilerTag = "Lord Save Our Souls"; 
+    }
+}
+
+public enum RenderPassEvent
+{
+    BeforeRendering = 0,
+    BeforeRenderingShadows = 50,
+    AfterRenderingShadows = 100,
+    BeforeRenderingPrepasses = 150,
+    AfterRenderingPrePasses = 200,
+    BeforeRenderingOpaques = 250,
+    AfterRenderingOpaques = 300,
+    BeforeRenderingSkybox = 350,
+    AfterRenderingSkybox = 400,
+    BeforeRenderingTransparents = 450,
+    AfterRenderingTransparents = 500,
+    BeforeRenderingPostProcessing = 550,
+    AfterRenderingPostProcessing = 600,
+    AfterRendering = 1000,
 }

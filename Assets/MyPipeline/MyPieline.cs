@@ -6,17 +6,6 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 
-
-//Required Compnetes fot this to work
-/// <summary>
-///  UniversalAdditionalCameraData,
-///  LWRPAdditionalCameraData,
-///  ScriptableRenderer,
-///  ProfilingSample,
-///  SupportedRenderingFeatures,
-/// </summary>
-
-
 public class MyPieline : RenderPipeline
 {
     //TODO : See the best way to add drawing settings and Shdaer ID list 
@@ -32,7 +21,6 @@ public class MyPieline : RenderPipeline
     RenderStateBlock m_RenderStateBlock;
     List<ShaderTagId> m_ShaderTagIdList = new List<ShaderTagId>();
     string m_ProfilerTag;
-    bool m_IsOpaque;
 
 
     // Command Buffer
@@ -52,18 +40,19 @@ public class MyPieline : RenderPipeline
     public MyPieline()
     {
         m_ShaderTagIdList.Add(new ShaderTagId("SRPDefaultUnlit"));
-        m_ShaderTagIdList.Add(new ShaderTagId("ForwardBase"));
+
         m_FilteringSettings = new FilteringSettings(RenderQueueRange.all, -1);
         m_RenderStateBlock = new RenderStateBlock(RenderStateMask.Everything);
-        m_IsOpaque = true;
         m_ProfilerTag = "Lord Save Our Souls";
+
+        
     }
 
 
     //So destroy things here that need to be done with from the menu 
     protected override void Dispose(bool disposing)
     {
-
+         
     }
 
     /// <summary>
@@ -74,9 +63,8 @@ public class MyPieline : RenderPipeline
     protected override void Render(ScriptableRenderContext context, Camera[] cameras)
     {
         BeginFrameRendering(context, cameras);
-
-        GraphicsSettings.lightsUseLinearIntensity = (QualitySettings.activeColorSpace == ColorSpace.Linear);
-        GraphicsSettings.useScriptableRenderPipelineBatching = true;
+        //GraphicsSettings.lightsUseLinearIntensity = (QualitySettings.activeColorSpace == ColorSpace.Linear);
+        //GraphicsSettings.useScriptableRenderPipelineBatching = true;
         //SetupPerFrameShaderConstants();
 
         foreach (var Cam in cameras)
@@ -140,6 +128,8 @@ public class MyPieline : RenderPipeline
             m_FilteringSettings.renderQueueRange = RenderQueueRange.opaque;
             context.DrawRenderers(cull, ref drawSettings, ref m_FilteringSettings, ref m_RenderStateBlock);
 
+            DrawDefaultPipeline(context, camera);
+
         }
         context.ExecuteCommandBuffer(cmd);
         CommandBufferPool.Release(cmd);
@@ -165,11 +155,11 @@ public class MyPieline : RenderPipeline
             //perObjectData = PerObjectData.None,
             enableInstancing = true,
             //mainLightIndex = renderingData.lightData.mainLightIndex,
-            enableDynamicBatching = false,
+            enableDynamicBatching = true,
         };
         if (m_ShaderTagIdList.Count > 1)
         {
-            for (int i = 1; i < m_ShaderTagIdList.Count; ++i)
+            for (int i = 1; i < m_ShaderTagIdList.Count-1; ++i)
                 settings.SetShaderPassName(i, m_ShaderTagIdList[i]);
         }
         //Sets up all th shaders to in the list and sends it to the settings.
@@ -189,6 +179,36 @@ public class MyPieline : RenderPipeline
             camera.backgroundColor
         );
 
+    }
+
+    [Conditional("DEVELOPMENT_BUILD"), Conditional("UNITY_EDITOR")]
+    void DrawDefaultPipeline(ScriptableRenderContext context, Camera camera)
+    {
+        if (errorMaterial == null)
+        {
+            Shader errorShader = Shader.Find("Hidden/InternalErrorShader");
+            errorMaterial = new Material(errorShader)
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
+        }
+        SortingSettings sortingSettings = new SortingSettings(camera);
+        
+        //drawSettings.overrideMaterial(errorMaterial, 0);
+
+        var settings = new DrawingSettings(new ShaderTagId("ForwardRendering"), new SortingSettings(camera));
+        settings.SetShaderPassName(1, new ShaderTagId("PrepassBase"));
+        settings.SetShaderPassName(2,new ShaderTagId("Always"));
+        settings.SetShaderPassName(3,new ShaderTagId("Vertex"));
+        settings.SetShaderPassName(4, new ShaderTagId("VertexLMRGBM"));
+        settings.SetShaderPassName(5,new ShaderTagId("VertexLM"));
+        settings.overrideMaterial= errorMaterial;
+        settings.sortingSettings = new SortingSettings(camera);
+        var filterSettings = new FilteringSettings(RenderQueueRange.all, -1) {excludeMotionVectorObjects = true,
+         sortingLayerRange = SortingLayerRange.all};
+        context.DrawRenderers(
+            cull, ref settings, ref filterSettings
+        );
     }
 
 }

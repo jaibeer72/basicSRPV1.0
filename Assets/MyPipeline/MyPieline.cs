@@ -64,7 +64,7 @@ public class MyPieline : RenderPipeline
     {
         BeginFrameRendering(context, cameras);
         //GraphicsSettings.lightsUseLinearIntensity = (QualitySettings.activeColorSpace == ColorSpace.Linear);
-        //GraphicsSettings.useScriptableRenderPipelineBatching = true;
+        GraphicsSettings.useScriptableRenderPipelineBatching = true;
         //SetupPerFrameShaderConstants();
 
         foreach (var Cam in cameras)

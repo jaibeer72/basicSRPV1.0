@@ -3,6 +3,7 @@
 Shader "Custom/Texture Splatting"
 {
 	Properties{
+
 		_MainTex("Texture", 2D) = "white" {}
 		[NoScaleOffset] _Texture1("Texture 1", 2D) = "white" {}
 		[NoScaleOffset] _Texture2("Texture 2", 2D) = "white" {}
@@ -19,7 +20,9 @@ Shader "Custom/Texture Splatting"
 			//Vatiables 
 			uniform  sampler2D _MainTex;
 			//This is for tileing and offset
+			CBUFFER_START(UnityPerMaterial)
 			float4 _MainTex_ST;
+			CBUFFER_END
 
 			sampler2D _Texture1, _Texture2, _Texture3, _Texture4;
 			
